@@ -5,17 +5,30 @@ export async function POST(req: NextRequest) {
     const { baseURL, apiKey } = await req.json();
 
     if (!baseURL || !apiKey) {
-      return NextResponse.json(
-        { error: "Base URL dan API Key diperlukan untuk mendeteksi model." },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: "Base URL dan API Key diperlukan untuk mendeteksi model.",
+      });
     }
 
-    // Normalize URL
+    const trimmedKey = apiKey.trim();
     const cleanBaseURL = baseURL.trim().replace(/\/+$/, "");
     const modelsUrl = cleanBaseURL.endsWith("/models")
       ? cleanBaseURL
       : `${cleanBaseURL}/models`;
+
+    // Smart provider hint
+    let providerHint = "";
+    if (trimmedKey.startsWith("sk-or-") && !cleanBaseURL.includes("openrouter")) {
+      providerHint =
+        " (Petunjuk: Key ini berformat OpenRouter 'sk-or-'. Coba ubah Base URL ke: https://openrouter.ai/api/v1)";
+    } else if (trimmedKey.startsWith("gsk_") && !cleanBaseURL.includes("groq")) {
+      providerHint =
+        " (Petunjuk: Key ini berformat Groq 'gsk_'. Coba ubah Base URL ke: https://api.groq.com/openai/v1)";
+    } else if (trimmedKey.startsWith("sk-ant-")) {
+      providerHint =
+        " (Petunjuk: Key ini adalah format Anthropic direct. Pastikan Base URL adalah proxy yang mendukung endpoint /models).";
+    }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
@@ -23,7 +36,7 @@ export async function POST(req: NextRequest) {
     const response = await fetch(modelsUrl, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${apiKey.trim()}`,
+        Authorization: `Bearer ${trimmedKey}`,
         "Content-Type": "application/json",
       },
       signal: controller.signal,
@@ -41,30 +54,24 @@ export async function POST(req: NextRequest) {
           errorJson?.error ||
           errorText;
       } catch {
-        // Fallback to text
+        // Fallback text
       }
 
       if (response.status === 401) {
-        return NextResponse.json(
-          {
-            error: `Autentikasi Gagal (401): API Key tidak valid untuk endpoint "${cleanBaseURL}". Pastikan Base URL sesuai dengan provider API Key Anda (misal OpenRouter, OpenAI, dsb). Pesan provider: ${parsedMessage}`,
-          },
-          { status: 401 }
-        );
+        return NextResponse.json({
+          success: false,
+          error: `Autentikasi Gagal (401): API Key tidak valid untuk endpoint "${cleanBaseURL}". Pastikan Base URL sesuai dengan provider API Key Anda.${providerHint} Pesan provider: ${parsedMessage}`,
+        });
       }
 
-      return NextResponse.json(
-        {
-          error: `Error dari endpoint (${response.status}): ${parsedMessage}`,
-        },
-        { status: response.status }
-      );
+      return NextResponse.json({
+        success: false,
+        error: `Error dari endpoint (${response.status}): ${parsedMessage}${providerHint}`,
+      });
     }
 
     const json = await response.json();
 
-    // Standard OpenAI format: { data: [{ id: "..." }, ...] }
-    // Other endpoints may return: { models: [...] } or array directly
     let rawItems: any[] = [];
     if (Array.isArray(json)) {
       rawItems = json;
@@ -80,19 +87,18 @@ export async function POST(req: NextRequest) {
       .sort((a, b) => a.localeCompare(b));
 
     return NextResponse.json({
+      success: true,
       models: modelIds,
       count: modelIds.length,
     });
   } catch (error: any) {
     console.error("Error fetching models:", error);
-    return NextResponse.json(
-      {
-        error:
-          error?.name === "AbortError"
-            ? "Koneksi timeout saat menghubungi endpoint. Periksa apakah Base URL dapat diakses."
-            : error?.message || "Gagal menghubungi layanan endpoint model.",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      success: false,
+      error:
+        error?.name === "AbortError"
+          ? "Koneksi timeout saat menghubungi endpoint. Periksa apakah Base URL dapat diakses."
+          : error?.message || "Gagal menghubungi layanan endpoint model.",
+    });
   }
 }

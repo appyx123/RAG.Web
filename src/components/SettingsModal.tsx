@@ -49,8 +49,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: Props) {
 
         const data = await res.json();
 
-        if (!res.ok) {
-          // Reset detected models on failure to prevent stale UI state
+        if (!res.ok || data.success === false) {
           setDetectedModels([]);
           throw new Error(data.error || "Gagal mengambil daftar model dari endpoint");
         }
