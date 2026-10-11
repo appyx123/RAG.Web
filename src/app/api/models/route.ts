@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
 
     if (!baseURL || !apiKey) {
       return NextResponse.json(
-        { error: "Base URL and API Key are required to fetch models" },
+        { error: "Base URL dan API Key diperlukan untuk mendeteksi model." },
         { status: 400 }
       );
     }
@@ -31,8 +31,32 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       const errorText = await response.text();
+      let parsedMessage = errorText;
+
+      try {
+        const errorJson = JSON.parse(errorText);
+        parsedMessage =
+          errorJson?.error?.message ||
+          errorJson?.message ||
+          errorJson?.error ||
+          errorText;
+      } catch {
+        // Fallback to text
+      }
+
+      if (response.status === 401) {
+        return NextResponse.json(
+          {
+            error: `Autentikasi Gagal (401): API Key tidak valid untuk endpoint "${cleanBaseURL}". Pastikan Base URL sesuai dengan provider API Key Anda (misal OpenRouter, OpenAI, dsb). Pesan provider: ${parsedMessage}`,
+          },
+          { status: 401 }
+        );
+      }
+
       return NextResponse.json(
-        { error: `Endpoint error (${response.status}): ${errorText.slice(0, 300)}` },
+        {
+          error: `Error dari endpoint (${response.status}): ${parsedMessage}`,
+        },
         { status: response.status }
       );
     }
@@ -65,8 +89,8 @@ export async function POST(req: NextRequest) {
       {
         error:
           error?.name === "AbortError"
-            ? "Request timeout connecting to endpoint"
-            : error?.message || "Failed to connect to endpoint models service",
+            ? "Koneksi timeout saat menghubungi endpoint. Periksa apakah Base URL dapat diakses."
+            : error?.message || "Gagal menghubungi layanan endpoint model.",
       },
       { status: 500 }
     );

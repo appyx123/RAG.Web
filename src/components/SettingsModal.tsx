@@ -32,7 +32,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [isManualInput, setIsManualInput] = useState(false);
 
-  // Auto fetch models function
+  // Fetch models from endpoint
   const fetchModelsFromEndpoint = useCallback(
     async (url: string, key: string) => {
       if (!url.trim() || !key.trim()) return;
@@ -50,28 +50,32 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: Props) {
         const data = await res.json();
 
         if (!res.ok) {
+          // Reset detected models on failure to prevent stale UI state
+          setDetectedModels([]);
           throw new Error(data.error || "Gagal mengambil daftar model dari endpoint");
         }
 
         if (Array.isArray(data.models) && data.models.length > 0) {
           setDetectedModels(data.models);
-          // If current model is not set or not in list, auto-select first model
-          if (!data.models.includes(form.model)) {
-            setForm((prev) => ({
-              ...prev,
-              model: data.models[0] || prev.model,
-            }));
-          }
+          // If current selected model is not in list, auto-select first model
+          setForm((prev) => {
+            if (!data.models.includes(prev.model)) {
+              return { ...prev, model: data.models[0] };
+            }
+            return prev;
+          });
         } else {
+          setDetectedModels([]);
           setModelsError("Endpoint tidak mengembalikan daftar model. Silakan ketik manual.");
         }
       } catch (err: any) {
+        setDetectedModels([]);
         setModelsError(err.message || "Gagal menghubungi endpoint.");
       } finally {
         setIsLoadingModels(false);
       }
     },
-    [form.model]
+    []
   );
 
   // Sync state on open
@@ -135,11 +139,14 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: Props) {
               required
               placeholder="https://api.openai.com/v1"
               value={form.baseURL}
-              onChange={(e) => setForm({ ...form, baseURL: e.target.value })}
+              onChange={(e) => {
+                setForm({ ...form, baseURL: e.target.value });
+                setModelsError(null);
+              }}
               className="w-full px-3 py-2 text-sm rounded-lg bg-zinc-950/80 border border-zinc-700/80 focus:outline-none focus:border-indigo-500 font-mono text-zinc-200 transition"
             />
             <p className="text-[11px] text-zinc-500 mt-1">
-              Contoh: <code className="text-zinc-400 font-mono">https://api.openai.com/v1</code> atau <code className="text-zinc-400 font-mono">https://openrouter.ai/api/v1</code>
+              Contoh: <code className="text-zinc-400 font-mono">https://api.openai.com/v1</code>, <code className="text-zinc-400 font-mono">https://openrouter.ai/api/v1</code>, atau URL proxy Anda.
             </p>
           </div>
 
@@ -166,12 +173,15 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: Props) {
               required
               placeholder="sk-..."
               value={form.apiKey}
-              onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+              onChange={(e) => {
+                setForm({ ...form, apiKey: e.target.value });
+                setModelsError(null);
+              }}
               className="w-full px-3 py-2 text-sm rounded-lg bg-zinc-950/80 border border-zinc-700/80 focus:outline-none focus:border-indigo-500 font-mono text-zinc-200 transition"
             />
             <p className="text-[11px] text-zinc-500 mt-1 flex items-center gap-1">
               <HelpCircle className="w-3 h-3 text-zinc-600 inline shrink-0" />
-              Tersimpan aman di LocalStorage browser Anda.
+              Tersimpan di LocalStorage browser. Pastikan key sesuai dengan Base URL yang Anda isi.
             </p>
           </div>
 
@@ -183,7 +193,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: Props) {
               </label>
 
               <div className="flex items-center gap-2">
-                {detectedModels.length > 0 && !isLoadingModels && (
+                {detectedModels.length > 0 && !isLoadingModels && !modelsError && (
                   <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3" />
                     {detectedModels.length} model terdeteksi
@@ -209,13 +219,11 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: Props) {
 
             {/* Error message */}
             {modelsError && !isLoadingModels && (
-              <div className="py-2.5 px-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-start gap-2">
+              <div className="py-2.5 px-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 flex items-start gap-2.5">
                 <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p>{modelsError}</p>
-                  <p className="text-[11px] text-amber-400/80 mt-0.5">
-                    Anda tetap bisa memasukkan ID model secara manual di bawah.
-                  </p>
+                <div className="flex-1 space-y-1">
+                  <p className="font-medium text-amber-300">Gagal Mendeteksi Model</p>
+                  <p className="text-[11px] text-zinc-300 leading-relaxed">{modelsError}</p>
                 </div>
               </div>
             )}
@@ -255,12 +263,16 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: Props) {
                     onChange={(e) => setForm({ ...form, model: e.target.value })}
                     className="w-full px-3 py-2.5 text-xs rounded-lg bg-zinc-900 border border-zinc-700 focus:outline-none focus:border-indigo-500 font-mono text-zinc-100 appearance-none pr-8 cursor-pointer"
                   >
+                    {/* Ensure selected model is in options if not filtered */}
+                    {!filteredModels.includes(form.model) && form.model && (
+                      <option value={form.model}>{form.model} (terpilih)</option>
+                    )}
                     {filteredModels.map((modelId) => (
                       <option key={modelId} value={modelId}>
                         {modelId}
                       </option>
                     ))}
-                    {filteredModels.length === 0 && (
+                    {filteredModels.length === 0 && !form.model && (
                       <option disabled>Tidak ada model yang cocok dengan pencarian</option>
                     )}
                   </select>
@@ -268,7 +280,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: Props) {
                 </div>
               </div>
             ) : (
-              /* Fallback presets if not fetched yet */
+              /* Fallback presets if not fetched yet or error */
               <div className="space-y-1.5">
                 <select
                   value={form.model}
@@ -282,7 +294,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: Props) {
                   ))}
                 </select>
                 <p className="text-[10px] text-zinc-500">
-                  💡 Klik &quot;Deteksi Ulang Model&quot; di atas untuk menarik semua model yang disediakan endpoint Anda.
+                  💡 Masukkan Base URL & API Key yang valid lalu klik &quot;Deteksi Ulang Model&quot;.
                 </p>
               </div>
             )}
